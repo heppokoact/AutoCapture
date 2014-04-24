@@ -9,11 +9,19 @@ package jp.co.heppokoact.autocapture;
 import java.io.File;
 import java.net.URL;
 import java.util.ResourceBundle;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
+import javafx.concurrent.Service;
+import javafx.concurrent.Task;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
 import javafx.geometry.Rectangle2D;
 import javafx.scene.Scene;
+import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.input.KeyCode;
 import javafx.scene.layout.AnchorPane;
@@ -26,12 +34,15 @@ import javafx.stage.DirectoryChooser;
 import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
+import javafx.util.Duration;
 
 /**
  *
  * @author yoshidacojp
  */
 public class FXMLDocumentController implements Initializable {
+    
+    private Stage stage;
     
     @FXML
     private AnchorPane anchorPane;
@@ -49,6 +60,16 @@ public class FXMLDocumentController implements Initializable {
     private Label pointYLabel;
     @FXML
     private Label saveDirectoryLabel;
+    @FXML
+    private Button areaButton;
+    @FXML
+    private Button pointButton;
+    @FXML
+    private Button saveDirectoryButton;
+    @FXML
+    private Button startButton;
+    @FXML
+    private Button stopButton;
     
     private double areaStartX;
     private double areaStartY;
@@ -62,6 +83,9 @@ public class FXMLDocumentController implements Initializable {
     private double dragStartY;
     private Rectangle areaRect;
     
+    private CaptureService captureService = new CaptureService();
+    private Timeline captureTimeline;
+    
     @Override
     public void initialize(URL url, ResourceBundle rb) {
         areaStartXLabel.setText("0.0");
@@ -71,13 +95,14 @@ public class FXMLDocumentController implements Initializable {
         pointXLabel.setText("0.0");
         pointYLabel.setText("0.0");
         saveDirectoryLabel.setText("");
-    }    
+        stopButton.setDisable(true);
+    }
     
     @FXML
     private void areaButtonClicked(ActionEvent event) {
         System.out.println("areaButtonClicked");
-        Stage stage = createTransparentStage();
-        Scene scene = stage.getScene();
+        Stage transparentStage = createTransparentStage();
+        Scene scene = transparentStage.getScene();
         scene.setOnMousePressed(e -> {
             dragStartX = e.getScreenX();
             dragStartY = e.getScreenY();
@@ -101,30 +126,30 @@ public class FXMLDocumentController implements Initializable {
             areaStartYLabel.setText(Double.toString(areaStartY));
             areaEndXLabel.setText(Double.toString(areaEndX));
             areaEndYLabel.setText(Double.toString(areaEndY));
-            stage.close();
+            transparentStage.close();
         });
-        stage.setOnCloseRequest(e -> {
+        transparentStage.setOnCloseRequest(e -> {
             dragStartX = 0.0;
             dragStartY = 0.0;
             areaRect = null;
         });
             
-        stage.show();
+        transparentStage.show();
     }
     
     @FXML
     private void pointButtonClicked(ActionEvent event) {
         System.out.println("pointButtonClicked");
-        Stage stage = createTransparentStage();
-        Scene scene = stage.getScene();
+        Stage transparentStage = createTransparentStage();
+        Scene scene = transparentStage.getScene();
         scene.setOnMouseClicked(e -> {
             pointX = e.getScreenX();
             pointY = e.getScreenY();
             pointXLabel.setText(Double.toString(pointX));
             pointYLabel.setText(Double.toString(pointY));
-            stage.close();
+            transparentStage.close();
         });
-        stage.show();
+        transparentStage.show();
     }
     
     @FXML
@@ -142,21 +167,43 @@ public class FXMLDocumentController implements Initializable {
     @FXML
     private void startButtonClicked(ActionEvent event) {
         System.out.println("startButtonClicked");
+        
+        areaButton.setDisable(true);
+        pointButton.setDisable(true);
+        saveDirectoryButton.setDisable(true);
+        startButton.setDisable(true);
+        stopButton.setDisable(false);
+        
+        captureTimeline = new Timeline(new KeyFrame(new Duration(1000), e -> {
+            System.out.println("AAAAAA");
+            captureService.restart();
+            System.out.println("BBBBBB");
+        }));
+        captureTimeline.setCycleCount(Timeline.INDEFINITE);
+        captureTimeline.play();
     }
     
     @FXML
     private void stopButtonClicked(ActionEvent event) {
         System.out.println("stopButtonClicked");
+        
+        captureTimeline.stop();
+                
+        areaButton.setDisable(false);
+        pointButton.setDisable(false);
+        saveDirectoryButton.setDisable(false);
+        startButton.setDisable(false);
+        stopButton.setDisable(true);
     }
     
     private Stage createTransparentStage() {
-        Stage stage = new Stage(StageStyle.TRANSPARENT);
-        stage.initOwner(anchorPane.getScene().getWindow());
-        stage.initModality(Modality.APPLICATION_MODAL);
-        stage.setResizable(false);
+        Stage transparentStage = new Stage(StageStyle.TRANSPARENT);
+        transparentStage.initOwner(anchorPane.getScene().getWindow());
+        transparentStage.initModality(Modality.APPLICATION_MODAL);
+        transparentStage.setResizable(false);
         Rectangle2D rect = Screen.getPrimary().getVisualBounds();
-        stage.setWidth(rect.getWidth());
-        stage.setHeight(rect.getHeight());
+        transparentStage.setWidth(rect.getWidth());
+        transparentStage.setHeight(rect.getHeight());
         
         Pane pane = new Pane();
         pane.setBackground(Background.EMPTY);
@@ -164,14 +211,33 @@ public class FXMLDocumentController implements Initializable {
         Scene scene = new Scene(pane);
         scene.setOnKeyPressed(e -> {
             if (e.getCode() == KeyCode.ESCAPE) {
-                stage.close();
+                transparentStage.close();
             }
         });
         scene.setFill(Color.TRANSPARENT);
-        stage.setScene(scene);
+        transparentStage.setScene(scene);
         
-        return stage;
+        return transparentStage;
     }
     
+    class CaptureService extends Service<Void> {
+
+        @Override
+        protected Task<Void> createTask() {
+            return new Task<Void>() {
+                @Override
+                protected Void call() throws Exception {
+                    System.out.println(areaStartX);
+                    System.out.println("BBBBBBBB");
+                    return null;
+                }
+            };
+        }
+        
+    }
+    
+    public void setStage(Stage stage) {
+        this.stage = stage;
+    }
     
 }
