@@ -1,7 +1,11 @@
 #ant specific
 dist/
 build/
- 
+
+# generated files
+bin/
+gen/
+
 #netbeans specific
 core
 nbproject/*
@@ -19,3 +23,8 @@ nbproject/*
 *.swp
 *.DS_Store
 *.lock
+
+# eclipse settings
+.classpath
+.project
+.settings/

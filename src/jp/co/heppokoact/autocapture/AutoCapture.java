@@ -17,16 +17,14 @@ import javafx.stage.Stage;
  * @author yoshidacojp
  */
 public class AutoCapture extends Application {
-    
+
     @Override
     public void start(Stage stage) throws Exception {
         FXMLLoader loader = new FXMLLoader(getClass().getResource("FXMLDocument.fxml"));
         Parent root = loader.load();
-        FXMLDocumentController controller = (FXMLDocumentController)loader.getController();
-        controller.setStage(stage);
-        
+
         Scene scene = new Scene(root);
-        
+
         stage.setScene(scene);
         stage.show();
     }
@@ -37,5 +35,5 @@ public class AutoCapture extends Application {
     public static void main(String[] args) {
         launch(args);
     }
-    
+
 }
