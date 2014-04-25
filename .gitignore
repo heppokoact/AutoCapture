@@ -11,6 +11,7 @@ core
 nbproject/*
 !nbproject/project.properties
 !nbproject/project.xml
+!nbproject/build-impl.xml
  
 #java specific
 *.class
