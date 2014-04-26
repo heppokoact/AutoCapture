@@ -15,9 +15,13 @@ import java.awt.image.BufferedImage;
 import java.awt.image.Raster;
 import java.io.ByteArrayInputStream;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.net.URL;
 import java.text.DecimalFormat;
+import java.util.Properties;
 import java.util.ResourceBundle;
 
 import javafx.animation.KeyFrame;
@@ -69,6 +73,7 @@ public class FXMLDocumentController implements Initializable {
 	private static final Logger LOGGER = LoggerFactory
 			.getLogger(FXMLDocumentController.class);
 
+	private static final File CONFIG_FILE = new File("config.xml");
 	private static final double CAPTURE_INTERVAL = 2000.0;
 
 	private Stage stage;
@@ -112,6 +117,9 @@ public class FXMLDocumentController implements Initializable {
 	private double dragStartY;
 	private Rectangle areaRect;
 
+	/** 設定 */
+	private Properties prop;
+
 	/** キャプチャ取得サービス */
 	private CaptureService captureService;
 	/** キャプチャ取得サービスを定期実行するタイムライン */
@@ -124,6 +132,28 @@ public class FXMLDocumentController implements Initializable {
 
 	@Override
 	public void initialize(URL url, ResourceBundle rb) {
+		// 設定ファイルの読み込み
+		prop = new Properties();
+		if (CONFIG_FILE.exists()) {
+			try {
+				prop.loadFromXML(new FileInputStream(CONFIG_FILE));
+			} catch (IOException e) {
+				throw new RuntimeException("設定ファイルの読み込みに失敗しました。", e);
+			}
+		}
+
+		// 設定ファイルに定義した保存ディレクトリが実在すれば使用する
+		String saveDirectoryPath = prop.getProperty("saveDirectoryPath");
+		String saveDirectoryName = "";
+		if (saveDirectoryPath != null) {
+			File tempSaveDirectory = new File(saveDirectoryPath);
+			if (tempSaveDirectory.exists()) {
+				saveDirectory = tempSaveDirectory;
+				saveDirectoryName = saveDirectory.getName();
+			}
+		}
+		saveDirectoryLabel.setText(saveDirectoryName);
+
 		// 各種ラベルに初期値をセット
 		areaStartXLabel.setText("0.0");
 		areaStartYLabel.setText("0.0");
@@ -131,7 +161,6 @@ public class FXMLDocumentController implements Initializable {
 		areaEndYLabel.setText("0.0");
 		pointXLabel.setText("0.0");
 		pointYLabel.setText("0.0");
-		saveDirectoryLabel.setText("");
 
 		// 停止ボタンは非活性
 		stopButton.setDisable(true);
@@ -145,7 +174,7 @@ public class FXMLDocumentController implements Initializable {
 		try {
 			robot = new Robot();
 		} catch (AWTException e) {
-			throw new RuntimeException(e);
+			throw new RuntimeException("ロボットが作成できません。", e);
 		}
 
 		// 完了時効果音を読み込み
@@ -230,7 +259,7 @@ public class FXMLDocumentController implements Initializable {
 	}
 
 	@FXML
-	private void saveDirectoryButtonClicked(ActionEvent event) {
+	private void saveDirectoryButtonClicked(ActionEvent event) throws FileNotFoundException, IOException {
 		System.out.println("saveDirectoryButtonClicked");
 
 		// 保存ディレクトリを選択するダイアログを表示
@@ -242,6 +271,10 @@ public class FXMLDocumentController implements Initializable {
 		// 保存ディレクトリが選択された場合、ラベルに表示
 		if (saveDirectory != null) {
 			saveDirectoryLabel.setText(saveDirectory.getName());
+
+			// 選択したディレクトリを設定ファイルに保存
+			prop.setProperty("saveDirectoryPath", saveDirectory.getAbsolutePath());
+			prop.storeToXML(new FileOutputStream(CONFIG_FILE), "AutoCapture設定ファイル");
 		}
 	}
 
