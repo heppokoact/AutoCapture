@@ -361,6 +361,7 @@ public class FXMLDocumentController implements Initializable {
 						Point mousePoint = MouseInfo.getPointerInfo().getLocation();
 						robot.mouseMove((int) pointX, (int) pointY);
 						robot.mousePress(InputEvent.BUTTON1_MASK);
+						Thread.sleep(50);
 						robot.mouseRelease(InputEvent.BUTTON1_MASK);
 						robot.mouseMove(mousePoint.x, mousePoint.y);
 					}
