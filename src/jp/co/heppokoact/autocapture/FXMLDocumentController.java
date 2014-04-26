@@ -40,6 +40,7 @@ import javafx.scene.layout.BackgroundPosition;
 import javafx.scene.layout.BackgroundRepeat;
 import javafx.scene.layout.BackgroundSize;
 import javafx.scene.layout.Pane;
+import javafx.scene.media.AudioClip;
 import javafx.scene.paint.Color;
 import javafx.scene.shape.Rectangle;
 import javafx.stage.DirectoryChooser;
@@ -118,6 +119,9 @@ public class FXMLDocumentController implements Initializable {
 	/** キャプチャ等を実施するロボット */
 	private Robot robot;
 
+	/** 完了時効果音 */
+	private AudioClip clip;
+
 	@Override
 	public void initialize(URL url, ResourceBundle rb) {
 		// 各種ラベルに初期値をセット
@@ -143,6 +147,9 @@ public class FXMLDocumentController implements Initializable {
 		} catch (AWTException e) {
 			throw new RuntimeException(e);
 		}
+
+		// 完了時効果音を読み込み
+		clip = new AudioClip(ClassLoader.getSystemResource("ayashi.wav").toString());
 	}
 
 	@FXML
@@ -260,6 +267,7 @@ public class FXMLDocumentController implements Initializable {
 		stopButton.setDisable(false);
 
 		// キャプチャを定期実行
+		captureService.setWaitCount(0);
 		captureTimeline.play();
 	}
 
@@ -279,6 +287,8 @@ public class FXMLDocumentController implements Initializable {
 		saveDirectoryButton.setDisable(false);
 		startButton.setDisable(false);
 		stopButton.setDisable(true);
+
+		clip.play();
 	}
 
 	private Stage createTransparentStage() throws IOException {
@@ -316,10 +326,6 @@ public class FXMLDocumentController implements Initializable {
 		return transparentStage;
 	}
 
-	private void handleFatalError(Throwable t) {
-
-	}
-
 	/**
 	 * キャプチャ取得サービス
 	 *
@@ -331,6 +337,8 @@ public class FXMLDocumentController implements Initializable {
 		private int seq;
 		/** 前回のキャプチャ */
 		private BufferedImage prevCapture;
+		/** 待機している回数 */
+		private int waitCount;
 
 		@Override
 		protected Task<Void> createTask() {
@@ -349,26 +357,41 @@ public class FXMLDocumentController implements Initializable {
 
 					// 前回のキャプチャと比較し、変化があればキャプチャを保存
 					if (isCaptureChanged(currentCapture)) {
+						waitCount = 0;
+
 						// キャプチャをファイルに保存
 						String stringSeq = new DecimalFormat("00000").format(++seq);
 						File captureFile = FileUtils.getFile(saveDirectory, stringSeq + ".bmp");
+						System.out.println("Save " + captureFile.getPath());
 						ImageIO.write(currentCapture, "bmp", captureFile);
 
 						// 今回のキャプチャを前回のキャプチャにする
 						prevCapture = currentCapture;
 
 						// クリックポイントをクリックし、その後マウス位置を元に戻す
-						Point mousePoint = MouseInfo.getPointerInfo().getLocation();
-						robot.mouseMove((int) pointX, (int) pointY);
-						robot.mousePress(InputEvent.BUTTON1_MASK);
-						Thread.sleep(50);
-						robot.mouseRelease(InputEvent.BUTTON1_MASK);
-						robot.mouseMove(mousePoint.x, mousePoint.y);
+						clickPoint();
+
+					} else {
+						waitCount++;
+						System.out.println("Wait " + waitCount);
+
+						if (waitCount == 5) {
+							// ５回めの待機ではもう一度クリックポイントをクリックしてみる
+							clickPoint();
+						}
 					}
 
 					return null;
 				}
 			};
+		}
+
+		@Override
+		protected void succeeded() {
+			// １０回めの待機では完了、または失敗とみなして停止する
+			if (waitCount == 10) {
+				stopCapture();
+			}
 		}
 
 		@Override
@@ -409,6 +432,20 @@ public class FXMLDocumentController implements Initializable {
 
 			return false;
 		}
+
+		private void clickPoint() throws InterruptedException {
+			Point mousePoint = MouseInfo.getPointerInfo().getLocation();
+			robot.mouseMove((int) pointX, (int) pointY);
+			robot.mousePress(InputEvent.BUTTON1_MASK);
+			Thread.sleep(50);
+			robot.mouseRelease(InputEvent.BUTTON1_MASK);
+			robot.mouseMove(mousePoint.x, mousePoint.y);
+		}
+
+		public void setWaitCount(int waitCount) {
+			this.waitCount = waitCount;
+		}
+
 	}
 
 	private int calcAreaWidth() {
