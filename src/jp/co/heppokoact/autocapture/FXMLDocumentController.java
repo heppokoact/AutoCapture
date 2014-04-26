@@ -7,12 +7,17 @@
 package jp.co.heppokoact.autocapture;
 
 import java.awt.AWTException;
+import java.awt.MouseInfo;
+import java.awt.Point;
 import java.awt.Robot;
+import java.awt.event.InputEvent;
 import java.awt.image.BufferedImage;
+import java.awt.image.Raster;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
+import java.text.DecimalFormat;
 import java.util.ResourceBundle;
 
 import javafx.animation.KeyFrame;
@@ -43,7 +48,15 @@ import javafx.stage.Screen;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import javafx.util.Duration;
+
+import javax.imageio.ImageIO;
+
 import jp.co.heppokoact.util.ImageUtil;
+
+import org.apache.commons.io.FileUtils;
+import org.controlsfx.dialog.Dialogs;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * メインウィンドウのコントローラ
@@ -51,6 +64,13 @@ import jp.co.heppokoact.util.ImageUtil;
  * @author M.Yoshida
  */
 public class FXMLDocumentController implements Initializable {
+
+	private static final Logger LOGGER = LoggerFactory
+			.getLogger(FXMLDocumentController.class);
+
+	private static final double CAPTURE_INTERVAL = 2000.0;
+
+	private Stage stage;
 
 	@FXML
 	private AnchorPane anchorPane;
@@ -92,9 +112,11 @@ public class FXMLDocumentController implements Initializable {
 	private Rectangle areaRect;
 
 	/** キャプチャ取得サービス */
-	private CaptureService captureService = new CaptureService();
+	private CaptureService captureService;
 	/** キャプチャ取得サービスを定期実行するタイムライン */
 	private Timeline captureTimeline;
+	/** キャプチャ等を実施するロボット */
+	private Robot robot;
 
 	@Override
 	public void initialize(URL url, ResourceBundle rb) {
@@ -109,10 +131,22 @@ public class FXMLDocumentController implements Initializable {
 
 		// 停止ボタンは非活性
 		stopButton.setDisable(true);
+
+		// キャプチャ取得サービスの構成
+		captureService = new CaptureService();
+		captureTimeline = new Timeline(new KeyFrame(new Duration(CAPTURE_INTERVAL), e -> {
+			captureService.restart();
+		}));
+		captureTimeline.setCycleCount(Timeline.INDEFINITE);
+		try {
+			robot = new Robot();
+		} catch (AWTException e) {
+			throw new RuntimeException(e);
+		}
 	}
 
 	@FXML
-	private void areaButtonClicked(ActionEvent event) {
+	private void areaButtonClicked(ActionEvent event) throws IOException {
 		System.out.println("areaButtonClicked");
 
 		// キャプチャ領域指定用ウィンドウを作成
@@ -168,7 +202,7 @@ public class FXMLDocumentController implements Initializable {
 	}
 
 	@FXML
-	private void pointButtonClicked(ActionEvent event) {
+	private void pointButtonClicked(ActionEvent event) throws IOException {
 		System.out.println("pointButtonClicked");
 
 		// クリックポイント指定用ウィンドウを作成
@@ -208,6 +242,16 @@ public class FXMLDocumentController implements Initializable {
 	private void startButtonClicked(ActionEvent event) {
 		System.out.println("startButtonClicked");
 
+		if (saveDirectory == null) {
+			Dialogs.create()//
+					.owner(stage)//
+					.title("ERROR")//
+					.masthead(null)//
+					.message("保存ディレクトリが指定されていません。")//
+					.showError();
+			return;
+		}
+
 		// 停止ボタンを活性化、それ以外のボタンを非活性化
 		areaButton.setDisable(true);
 		pointButton.setDisable(true);
@@ -216,17 +260,16 @@ public class FXMLDocumentController implements Initializable {
 		stopButton.setDisable(false);
 
 		// キャプチャを定期実行
-		captureTimeline = new Timeline(new KeyFrame(new Duration(1000), e -> {
-			captureService.restart();
-		}));
-		captureTimeline.setCycleCount(Timeline.INDEFINITE);
 		captureTimeline.play();
 	}
 
 	@FXML
 	private void stopButtonClicked(ActionEvent event) {
 		System.out.println("stopButtonClicked");
+		stopCapture();
+	}
 
+	private void stopCapture() {
 		// キャプチャ終了
 		captureTimeline.stop();
 
@@ -238,47 +281,43 @@ public class FXMLDocumentController implements Initializable {
 		stopButton.setDisable(true);
 	}
 
-	private Stage createTransparentStage() {
-		try {
-			// 画面いっぱいに最前面表示するウィンドウを作成
-			Stage transparentStage = new Stage(StageStyle.TRANSPARENT);
-			transparentStage.initOwner(anchorPane.getScene().getWindow());
-			transparentStage.initModality(Modality.APPLICATION_MODAL);
-			transparentStage.setResizable(false);
-			Rectangle2D rect = Screen.getPrimary().getVisualBounds();
-			transparentStage.setWidth(rect.getWidth());
-			transparentStage.setHeight(rect.getHeight());
+	private Stage createTransparentStage() throws IOException {
+		// 画面いっぱいに最前面表示するウィンドウを作成
+		Stage transparentStage = new Stage(StageStyle.TRANSPARENT);
+		transparentStage.initOwner(anchorPane.getScene().getWindow());
+		transparentStage.initModality(Modality.APPLICATION_MODAL);
+		transparentStage.setResizable(false);
+		Rectangle2D rect = Screen.getPrimary().getVisualBounds();
+		transparentStage.setWidth(rect.getWidth());
+		transparentStage.setHeight(rect.getHeight());
 
-			// 現在のウィンドウのスクリーンショットを撮影
-			Robot robot = new Robot();
-			java.awt.Rectangle awtRect = new java.awt.Rectangle(
-					(int) rect.getWidth(), (int) rect.getHeight());
-			BufferedImage captureImage = robot.createScreenCapture(awtRect);
+		// 現在のウィンドウのスクリーンショットを撮影
+		java.awt.Rectangle awtRect = new java.awt.Rectangle(
+				(int) rect.getWidth(), (int) rect.getHeight());
+		BufferedImage captureImage = robot.createScreenCapture(awtRect);
 
-			// 撮影したスクリーンショットをこのウィンドウの背景に表示
-			ByteArrayInputStream in = ImageUtil.convToInputStream(captureImage);
-			BackgroundImage bgImage = new BackgroundImage(new Image(in),
-					BackgroundRepeat.NO_REPEAT, BackgroundRepeat.NO_REPEAT,
-					BackgroundPosition.DEFAULT, BackgroundSize.DEFAULT);
-			Pane pane = new Pane();
-			pane.setBackground(new Background(bgImage));
+		// 撮影したスクリーンショットをこのウィンドウの背景に表示
+		ByteArrayInputStream in = ImageUtil.convToInputStream(captureImage);
+		BackgroundImage bgImage = new BackgroundImage(new Image(in),
+				BackgroundRepeat.NO_REPEAT, BackgroundRepeat.NO_REPEAT,
+				BackgroundPosition.DEFAULT, BackgroundSize.DEFAULT);
+		Pane pane = new Pane();
+		pane.setBackground(new Background(bgImage));
 
-			// このウィンドウがESC押下で閉じるようにする
-			Scene scene = new Scene(pane);
-			transparentStage.setScene(scene);
-			scene.setOnKeyPressed(e -> {
-				if (e.getCode() == KeyCode.ESCAPE) {
-					transparentStage.close();
-				}
-			});
+		// このウィンドウがESC押下で閉じるようにする
+		Scene scene = new Scene(pane);
+		transparentStage.setScene(scene);
+		scene.setOnKeyPressed(e -> {
+			if (e.getCode() == KeyCode.ESCAPE) {
+				transparentStage.close();
+			}
+		});
 
-			return transparentStage;
+		return transparentStage;
+	}
 
-		} catch (AWTException e) {
-			throw new RuntimeException(e);
-		} catch (IOException e) {
-			throw new RuntimeException(e);
-		}
+	private void handleFatalError(Throwable t) {
+
 	}
 
 	/**
@@ -288,17 +327,99 @@ public class FXMLDocumentController implements Initializable {
 	 */
 	class CaptureService extends Service<Void> {
 
+		/** ファイルの連番 */
+		private int seq;
+		/** 前回のキャプチャ */
+		private BufferedImage prevCapture;
+
 		@Override
 		protected Task<Void> createTask() {
 			return new Task<Void>() {
 				@Override
 				protected Void call() throws Exception {
-					System.out.println(areaStartX);
+					System.out.println("Start task");
+
+					// キャプチャ領域をキャプチャ
+					java.awt.Rectangle awtRect = new java.awt.Rectangle(
+							(int) areaStartX, (int) areaStartY,
+							calcAreaWidth(),
+							calcAreaHeight());
+					BufferedImage currentCapture = robot
+							.createScreenCapture(awtRect);
+
+					// 前回のキャプチャと比較し、変化があればキャプチャを保存
+					if (isCaptureChanged(currentCapture)) {
+						// キャプチャをファイルに保存
+						String stringSeq = new DecimalFormat("00000").format(++seq);
+						File captureFile = FileUtils.getFile(saveDirectory, stringSeq + ".bmp");
+						ImageIO.write(currentCapture, "bmp", captureFile);
+
+						// 今回のキャプチャを前回のキャプチャにする
+						prevCapture = currentCapture;
+
+						// クリックポイントをクリックし、その後マウス位置を元に戻す
+						Point mousePoint = MouseInfo.getPointerInfo().getLocation();
+						robot.mouseMove((int) pointX, (int) pointY);
+						robot.mousePress(InputEvent.BUTTON1_MASK);
+						robot.mouseRelease(InputEvent.BUTTON1_MASK);
+						robot.mouseMove(mousePoint.x, mousePoint.y);
+					}
+
 					return null;
 				}
 			};
 		}
 
+		@Override
+		protected void failed() {
+			stopCapture();
+			LOGGER.error("致命的なエラー", getException());
+			Dialogs.create()//
+					.title("FATAL")//
+					.masthead("致命的なエラー")//
+					.showException(getException());
+		}
+
+		private boolean isCaptureChanged(BufferedImage currentCapture) {
+			// 初回は変化ありとする
+			if (prevCapture == null) {
+				return true;
+			}
+
+			// 比較する両キャプチャのピクセルを取得
+			Raster currentRaster = currentCapture.getData();
+			Raster prevRaster = prevCapture.getData();
+			int[] currentPixels = currentRaster.getPixels(0, 0, currentCapture.getWidth(), currentCapture.getHeight(),
+					(int[]) null);
+			int[] prevPixels = prevRaster.getPixels(0, 0, prevCapture.getWidth(), prevCapture.getHeight(),
+					(int[]) null);
+
+			// ピクセルの長さが違えば変化あり（そんなことある？）
+			if (currentPixels.length != prevPixels.length) {
+				return true;
+			}
+
+			// ピクセルの中身を比較
+			for (int i = 0; i < currentPixels.length; i++) {
+				if (currentPixels[i] != prevPixels[i]) {
+					return true;
+				}
+			}
+
+			return false;
+		}
+	}
+
+	private int calcAreaWidth() {
+		return (int) (areaEndX - areaStartX);
+	}
+
+	private int calcAreaHeight() {
+		return (int) (areaEndY - areaStartY);
+	}
+
+	public void setStage(Stage stage) {
+		this.stage = stage;
 	}
 
 }
