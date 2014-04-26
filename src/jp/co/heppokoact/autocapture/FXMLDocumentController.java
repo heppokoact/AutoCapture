@@ -249,13 +249,7 @@ public class FXMLDocumentController implements Initializable {
 	private void startButtonClicked(ActionEvent event) {
 		System.out.println("startButtonClicked");
 
-		if (saveDirectory == null) {
-			Dialogs.create()//
-					.owner(stage)//
-					.title("ERROR")//
-					.masthead(null)//
-					.message("保存ディレクトリが指定されていません。")//
-					.showError();
+		if (!validateStartButtonClicked()) {
 			return;
 		}
 
@@ -269,6 +263,30 @@ public class FXMLDocumentController implements Initializable {
 		// キャプチャを定期実行
 		captureService.setWaitCount(0);
 		captureTimeline.play();
+	}
+
+	private boolean validateStartButtonClicked() {
+		if (calcAreaHeight() == 0 || calcAreaWidth() == 0) {
+			Dialogs.create()//
+					.owner(stage)//
+					.title("ERROR")//
+					.masthead(null)//
+					.message("キャプチャ領域を正しく指定してください。")//
+					.showError();
+			return false;
+		}
+
+		if (saveDirectory == null) {
+			Dialogs.create()//
+					.owner(stage)//
+					.title("ERROR")//
+					.masthead(null)//
+					.message("保存ディレクトリが指定されていません。")//
+					.showError();
+			return false;
+		}
+
+		return true;
 	}
 
 	@FXML
