@@ -16,9 +16,10 @@ import java.awt.image.Raster;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URL;
 import java.text.DecimalFormat;
 import java.util.Properties;
@@ -135,8 +136,8 @@ public class FXMLDocumentController implements Initializable {
 		// 設定ファイルの読み込み
 		prop = new Properties();
 		if (CONFIG_FILE.exists()) {
-			try {
-				prop.loadFromXML(new FileInputStream(CONFIG_FILE));
+			try (InputStream in = new FileInputStream(CONFIG_FILE)) {
+				prop.loadFromXML(in);
 			} catch (IOException e) {
 				throw new RuntimeException("設定ファイルの読み込みに失敗しました。", e);
 			}
@@ -259,7 +260,7 @@ public class FXMLDocumentController implements Initializable {
 	}
 
 	@FXML
-	private void saveDirectoryButtonClicked(ActionEvent event) throws FileNotFoundException, IOException {
+	private void saveDirectoryButtonClicked(ActionEvent event) throws IOException {
 		System.out.println("saveDirectoryButtonClicked");
 
 		// 保存ディレクトリを選択するダイアログを表示
@@ -274,7 +275,9 @@ public class FXMLDocumentController implements Initializable {
 
 			// 選択したディレクトリを設定ファイルに保存
 			prop.setProperty("saveDirectoryPath", saveDirectory.getAbsolutePath());
-			prop.storeToXML(new FileOutputStream(CONFIG_FILE), "AutoCapture設定ファイル");
+			try (OutputStream out = new FileOutputStream(CONFIG_FILE)) {
+				prop.storeToXML(out, "AutoCapture設定ファイル");
+			}
 		}
 	}
 
