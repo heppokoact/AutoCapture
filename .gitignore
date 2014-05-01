@@ -32,5 +32,6 @@ nbproject/*
 .settings/
 /target
 
-# AutoCapture setting file
+# AutoCapture file
 config.xml
+logs/
