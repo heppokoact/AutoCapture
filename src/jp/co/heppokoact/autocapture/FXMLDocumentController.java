@@ -29,6 +29,10 @@ import java.util.ResourceBundle;
 import javafx.animation.Animation.Status;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
+import javafx.beans.binding.Binding;
+import javafx.beans.binding.Bindings;
+import javafx.beans.property.DoubleProperty;
+import javafx.beans.property.IntegerProperty;
 import javafx.concurrent.Service;
 import javafx.concurrent.Task;
 import javafx.event.ActionEvent;
@@ -114,18 +118,18 @@ public class FXMLDocumentController implements Initializable {
 	@FXML
 	private Button stopButton;
 
-	private double areaStartX;
-	private double areaStartY;
-	private double areaEndX;
-	private double areaEndY;
-	private double nextPointX;
-	private double nextPointY;
-	private double prevPointX;
-	private double prevPointY;
+	private IntegerProperty areaStartX;
+	private IntegerProperty areaStartY;
+	private IntegerProperty areaEndX;
+	private IntegerProperty areaEndY;
+	private IntegerProperty nextPointX;
+	private IntegerProperty nextPointY;
+	private IntegerProperty prevPointX;
+	private IntegerProperty prevPointY;
 	private File saveDirectory;
 
-	private double dragStartX;
-	private double dragStartY;
+	private int dragStartX;
+	private int dragStartY;
 	private Rectangle areaRect;
 
 	/** 設定 */
@@ -166,14 +170,14 @@ public class FXMLDocumentController implements Initializable {
 		saveDirectoryLabel.setText(saveDirectoryName);
 
 		// 各種ラベルに初期値をセット
-		areaStartXLabel.setText("0.0");
-		areaStartYLabel.setText("0.0");
-		areaEndXLabel.setText("0.0");
-		areaEndYLabel.setText("0.0");
-		nextPointXLabel.setText("0.0");
-		nextPointYLabel.setText("0.0");
-		prevPointXLabel.setText("0.0");
-		prevPointYLabel.setText("0.0");
+    areaStartXLabel.textProperty().bind(Bindings.convert(areaStartX));
+		areaStartYLabel.textProperty().bind(Bindings.convert(areaStartY));
+		areaEndXLabel.textProperty().bind(Bindings.convert(areaEndX));
+		areaEndYLabel.textProperty().bind(Bindings.convert(areaEndY));
+		nextPointXLabel.textProperty().bind(Bindings.convert(areaStartX));
+		nextPointYLabel.textProperty().bind(Bindings.convert(areaStartX));
+		prevPointXLabel.textProperty().bind(Bindings.convert(areaStartX));
+		prevPointYLabel.textProperty().bind(Bindings.convert(areaStartX));
 
 		// 停止ボタンは非活性
 		stopButton.setDisable(true);
@@ -324,6 +328,12 @@ public class FXMLDocumentController implements Initializable {
 		captureTimeline.play();
 	}
 
+  /**
+   * スタートボタン押下時に、キャプチャ実行が可能な状態になっているかどうかを検証する。
+   * 可能な状態でない場合、ダイアログで通知する。
+   * 
+   * @return 可能な状態ならtrue
+   */
 	private boolean validateStartButtonClicked() {
 		if (calcAreaHeight() == 0 || calcAreaWidth() == 0) {
 			Dialogs.create()//
@@ -354,6 +364,9 @@ public class FXMLDocumentController implements Initializable {
 		stopCapture();
 	}
 
+  /**
+   * キャプチャサービスとサービスを起動するタイムラインを停止する。
+   */
 	private void stopCapture() {
 		// キャプチャ終了
 		captureTimeline.stop();
@@ -369,6 +382,14 @@ public class FXMLDocumentController implements Initializable {
 		clip.play();
 	}
 
+  /**
+   * 画面いっぱいに表示するウィンドウを作成して返す。
+   * ウィンドウの背景には現在の画面のスクリーンショットを表示する。
+   * このウィンドウはESCキーで閉じることができる。
+   * 
+   * @return 画面いっぱいに表示するウィンドウ
+   * @throws IOException スクリーンショットの表示に失敗した場合
+   */
 	private Stage createTransparentStage() throws IOException {
 		// 画面いっぱいに最前面表示するウィンドウを作成
 		Stage transparentStage = new Stage(StageStyle.TRANSPARENT);
@@ -419,7 +440,17 @@ public class FXMLDocumentController implements Initializable {
 		/** 現在処理中のページのうち、最も若いページ番号 */
 		private int youngestPageNumber;
 		/** 処理中のページ */
-		Map<Integer, Page> pages = new HashMap<Integer, Page>();
+		private Map<Integer, Page> pages = new HashMap<>();
+    /** 前回の方向 */
+    private Direction prevDirection1;
+    /** 前々回の方向 */
+    private Direction prevDirection2;
+    /** 前回のイメージ */
+    private BufferedImage prevImage;
+    /** 前回と今回でイメージに変化はあったか */
+    private boolean imageChanged1;
+    /** 前々回と前回でイメージに変化はあったか */
+    private boolean imageChanged2;
 
 		/**
 		 * このサービスを初期化する。
@@ -429,10 +460,9 @@ public class FXMLDocumentController implements Initializable {
 					(int) areaStartX, (int) areaStartY,
 					calcAreaWidth(),
 					calcAreaHeight());
-
 			youngestPageNumber = 1;
 			currentPageNumber = 1;
-			pages = new HashMap<Integer, Page>();
+			pages = new HashMap<>();
 		}
 
 		@Override
@@ -446,11 +476,22 @@ public class FXMLDocumentController implements Initializable {
 						currentPage = new Page(currentPageNumber);
 						pages.put(currentPageNumber, currentPage);
 					}
-
-					// 現在のページが確定していなければキャプチャ実施
+          
+          // キャプチャ実施
+          BufferedImage image = capture();
+          imageChanged2 = imageChanged1;
+          imageChanged1 = ImageUtil.equals(prevImage, image);
+          prevImage = image;
+          
+          // 終了判定
+          if (isCompleted()) {
+            stopCapture();
+            return null;
+          }
+          
+					// 現在のページが確定していなければキャプチャをページに与える
 					if (!currentPage.isFixed()) {
-						// キャプチャ領域をキャプチャしてページに与える
-						currentPage.submitImage(capture());
+						currentPage.submitImage(image);
 
 						// ページが確定したら出力
 						if (currentPage.isFixed()) {
@@ -460,13 +501,10 @@ public class FXMLDocumentController implements Initializable {
 					}
 
 					// ページをめくる
-					if (shouldGoForward()) {
-						clickPoint(nextPointX, nextPointY);
-						currentPageNumber++;
-					} else {
-						clickPoint(prevPointX, prevPointY);
-						currentPageNumber--;
-					}
+          Direction direction = decideDirection();
+          prevDirection2 = prevDirection1;
+          prevDirection1 = direction;
+          direction.turnPage();
 
 					return null;
 				}
@@ -476,12 +514,12 @@ public class FXMLDocumentController implements Initializable {
 		@Override
 		protected void ready() {
 			captureTimeline.pause();
-			System.out.printf("cur: %d, you: %d", currentPageNumber, youngestPageNumber);
+			System.out.printf("RADY -> cur:%d, you:%d, dir:(%s,%s), cng:(%b,%b)", currentPageNumber, youngestPageNumber, prevDirection1, prevDirection2, imageChanged1, imageChanged2);
 		}
 
 		@Override
 		protected void succeeded() {
-			System.out.printf("cur: %d, you: %d", currentPageNumber, youngestPageNumber);
+			System.out.printf("SUCC -> cur:%d, you:%d, dir:(%s,%s), cng:(%b,%b)", currentPageNumber, youngestPageNumber, prevDirection1, prevDirection2, imageChanged1, imageChanged2);
 
 			if (captureTimeline.getStatus() == Status.PAUSED) {
 				captureTimeline.play();
@@ -490,7 +528,7 @@ public class FXMLDocumentController implements Initializable {
 
 		@Override
 		protected void failed() {
-			System.out.printf("cur: %d, you: %d", currentPageNumber, youngestPageNumber);
+			System.out.printf("FAIL -> cur:%d, you:%d, dir:(%s,%s), cng:(%b,%b)", currentPageNumber, youngestPageNumber, prevDirection1, prevDirection2, imageChanged1, imageChanged2);
 			stopCapture();
 			LOGGER.error("致命的なエラー", getException());
 			Dialogs.create()//
@@ -507,6 +545,41 @@ public class FXMLDocumentController implements Initializable {
 		private BufferedImage capture() {
 			return robot.createScreenCapture(captureRect);
 		}
+    
+    /**
+     * キャプチャの終了判定を行う。
+     * 
+     * 下記のいずれかの場合、終了と判定する。
+     * 
+     * <ul>
+     *   <li>次の動作1,2が連続した場合（最後のページがそのひとつ前のページより先にFIXした場合を想定）
+     *     <ol>
+     *       <li>前方向にページめくりをし、イメージに変化がなかった</li>
+     *       <li>前方向にページめくりをし、イメージに変化がなかった</li>
+     *     </ol>
+     *   </li>
+     *   <li>次の動作1,2が連続した場合（最後のページが最後までFIXせずに残った場合を想定）
+     *     <ol>
+     *       <li>前方向にページめくりをし、イメージに変化がなかった</li>
+     *       <li>後方向にページめくりをし、イメージが変化した</li>
+     *     </ol>
+     *   </li>
+     * </ul>
+     * 
+     * @return 終了している場合true
+     */
+    private boolean isCompleted() {
+      if (prevDirection2 == FORWARD && !imageChanged2) {
+        
+        if (prevDirection1 == FORWARD && !imageChanged1) {
+          return true;
+        } else if (prevDirection1 == BACKWARD && imageChanged1) {
+          return true;
+        }
+      }
+      
+      return false;
+    }
 
 		/**
 		 * 引数のページを保存する。
@@ -537,8 +610,12 @@ public class FXMLDocumentController implements Initializable {
 		 *
 		 * @return 前方向ならtrue
 		 */
-		private boolean shouldGoForward() {
-			return currentPageNumber <= youngestPageNumber;
+		private Direction decideDirection() {
+			if (currentPageNumber <= youngestPageNumber) {
+        return FORWARD;
+      } else {
+        return BACKWARD;
+      }
 		}
 
 		/**
@@ -554,7 +631,42 @@ public class FXMLDocumentController implements Initializable {
 			robot.mouseRelease(InputEvent.BUTTON1_MASK);
 			robot.mouseMove(mousePoint.x, mousePoint.y);
 		}
+    
+    /**
+     * ページめくりする方向を表す。
+     * 本当はEnumが良いが、enumはstaticでない内部クラス内で定義できないので仕方なく抽象クラスを使用する。
+     */
+    private abstract class Direction {
+      abstract void turnPage();
+    }
+    
+    /** 前へ進む処理 */
+    private final Direction FORWARD = new Direction() {
+      @Override
+      void turnPage() {
+        clickPoint(nextPointX, nextPointY);
+        currentPageNumber++;
+      }
 
+      @Override
+      public String toString() {
+        return "FORWARD";
+      }
+    };
+    
+    /** 後ろへ進む処理 */
+    private final Direction BACKWARD = new Direction() {
+      @Override
+      void turnPage() {
+        clickPoint(prevPointX, prevPointY);
+        currentPageNumber--;
+      }
+      
+      @Override
+      public String toString() {
+        return "BACKWARD";
+      }
+    };
 	}
 
 	private int calcAreaWidth() {

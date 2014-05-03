@@ -18,7 +18,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  *
- * @author yoshidacojp
+ * @author M.Yoshida
  */
 public class AutoCapture extends Application {
 
