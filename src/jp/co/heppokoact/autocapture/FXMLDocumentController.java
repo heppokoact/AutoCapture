@@ -12,7 +12,6 @@ import java.awt.Point;
 import java.awt.Robot;
 import java.awt.event.InputEvent;
 import java.awt.image.BufferedImage;
-import java.awt.image.Raster;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -22,14 +21,18 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.URL;
 import java.text.DecimalFormat;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Properties;
 import java.util.ResourceBundle;
 
+import javafx.animation.Animation.Status;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
 import javafx.concurrent.Service;
 import javafx.concurrent.Task;
 import javafx.event.ActionEvent;
+import javafx.event.EventHandler;
 import javafx.fxml.FXML;
 import javafx.fxml.Initializable;
 import javafx.geometry.Rectangle2D;
@@ -38,6 +41,7 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.image.Image;
 import javafx.scene.input.KeyCode;
+import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.AnchorPane;
 import javafx.scene.layout.Background;
 import javafx.scene.layout.BackgroundImage;
@@ -75,7 +79,7 @@ public class FXMLDocumentController implements Initializable {
 			.getLogger(FXMLDocumentController.class);
 
 	private static final File CONFIG_FILE = new File("config.xml");
-	private static final double CAPTURE_INTERVAL = 2000.0;
+	private static final double CAPTURE_INTERVAL = 1000.0;
 
 	private Stage stage;
 
@@ -90,9 +94,13 @@ public class FXMLDocumentController implements Initializable {
 	@FXML
 	private Label areaEndYLabel;
 	@FXML
-	private Label pointXLabel;
+	private Label nextPointXLabel;
 	@FXML
-	private Label pointYLabel;
+	private Label nextPointYLabel;
+	@FXML
+	private Label prevPointXLabel;
+	@FXML
+	private Label prevPointYLabel;
 	@FXML
 	private Label saveDirectoryLabel;
 	@FXML
@@ -110,8 +118,10 @@ public class FXMLDocumentController implements Initializable {
 	private double areaStartY;
 	private double areaEndX;
 	private double areaEndY;
-	private double pointX;
-	private double pointY;
+	private double nextPointX;
+	private double nextPointY;
+	private double prevPointX;
+	private double prevPointY;
 	private File saveDirectory;
 
 	private double dragStartX;
@@ -160,8 +170,10 @@ public class FXMLDocumentController implements Initializable {
 		areaStartYLabel.setText("0.0");
 		areaEndXLabel.setText("0.0");
 		areaEndYLabel.setText("0.0");
-		pointXLabel.setText("0.0");
-		pointYLabel.setText("0.0");
+		nextPointXLabel.setText("0.0");
+		nextPointYLabel.setText("0.0");
+		prevPointXLabel.setText("0.0");
+		prevPointYLabel.setText("0.0");
 
 		// 停止ボタンは非活性
 		stopButton.setDisable(true);
@@ -247,14 +259,25 @@ public class FXMLDocumentController implements Initializable {
 
 		// クリックポイント指定用ウィンドウをクリックした時の動作
 		Scene scene = transparentStage.getScene();
-		scene.setOnMouseClicked(e -> {
+		// クリック２回目
+		EventHandler<? super MouseEvent> setPrevPoint = e -> {
 			// クリックポイントを記録し、ラベルに表示
-			pointX = e.getScreenX();
-			pointY = e.getScreenY();
-			pointXLabel.setText(Double.toString(pointX));
-			pointYLabel.setText(Double.toString(pointY));
+			prevPointX = e.getScreenX();
+			prevPointY = e.getScreenY();
+			prevPointXLabel.setText(Double.toString(prevPointX));
+			prevPointYLabel.setText(Double.toString(prevPointY));
 			transparentStage.close();
-		});
+		};
+		// クリック１回め
+		EventHandler<MouseEvent> setNextPoint = e -> {
+			// クリックポイントを記録し、ラベルに表示
+			nextPointX = e.getScreenX();
+			nextPointY = e.getScreenY();
+			nextPointXLabel.setText(Double.toString(nextPointX));
+			nextPointYLabel.setText(Double.toString(nextPointY));
+			scene.setOnMouseClicked(setPrevPoint);
+		};
+		scene.setOnMouseClicked(setNextPoint);
 
 		transparentStage.show();
 	}
@@ -297,7 +320,7 @@ public class FXMLDocumentController implements Initializable {
 		stopButton.setDisable(false);
 
 		// キャプチャを定期実行
-		captureService.setWaitCount(0);
+		captureService.init();
 		captureTimeline.play();
 	}
 
@@ -334,6 +357,7 @@ public class FXMLDocumentController implements Initializable {
 	private void stopCapture() {
 		// キャプチャ終了
 		captureTimeline.stop();
+		captureService.cancel();
 
 		// 停止ボタンを非活性化、それ以外のボタンを活性化
 		areaButton.setDisable(false);
@@ -367,6 +391,7 @@ public class FXMLDocumentController implements Initializable {
 				BackgroundPosition.DEFAULT, BackgroundSize.DEFAULT);
 		Pane pane = new Pane();
 		pane.setBackground(new Background(bgImage));
+		pane.setStyle("-fx-border-color: rgba(255, 255, 0, 0.5); -fx-border-style: solid; -fx-border-width: 15;");
 
 		// このウィンドウがESC押下で閉じるようにする
 		Scene scene = new Scene(pane);
@@ -387,52 +412,60 @@ public class FXMLDocumentController implements Initializable {
 	 */
 	class CaptureService extends Service<Void> {
 
-		/** ファイルの連番 */
-		private int seq;
-		/** 前回のキャプチャ */
-		private BufferedImage prevCapture;
-		/** 待機している回数 */
-		private int waitCount;
+		/** キャプチャ領域 */
+		private java.awt.Rectangle captureRect;
+		/** 現在表示中のページ */
+		private int currentPageNumber;
+		/** 現在処理中のページのうち、最も若いページ番号 */
+		private int youngestPageNumber;
+		/** 処理中のページ */
+		Map<Integer, Page> pages = new HashMap<Integer, Page>();
+
+		/**
+		 * このサービスを初期化する。
+		 */
+		public void init() {
+			captureRect = new java.awt.Rectangle(
+					(int) areaStartX, (int) areaStartY,
+					calcAreaWidth(),
+					calcAreaHeight());
+
+			youngestPageNumber = 1;
+			currentPageNumber = 1;
+			pages = new HashMap<Integer, Page>();
+		}
 
 		@Override
 		protected Task<Void> createTask() {
 			return new Task<Void>() {
 				@Override
 				protected Void call() throws Exception {
-					System.out.println("Start task");
+					// 現在のページを取得、なければ作成
+					Page currentPage = pages.get(currentPageNumber);
+					if (currentPage == null) {
+						currentPage = new Page(currentPageNumber);
+						pages.put(currentPageNumber, currentPage);
+					}
 
-					// キャプチャ領域をキャプチャ
-					java.awt.Rectangle awtRect = new java.awt.Rectangle(
-							(int) areaStartX, (int) areaStartY,
-							calcAreaWidth(),
-							calcAreaHeight());
-					BufferedImage currentCapture = robot
-							.createScreenCapture(awtRect);
+					// 現在のページが確定していなければキャプチャ実施
+					if (!currentPage.isFixed()) {
+						// キャプチャ領域をキャプチャしてページに与える
+						currentPage.submitImage(capture());
 
-					// 前回のキャプチャと比較し、変化があればキャプチャを保存
-					if (isCaptureChanged(currentCapture)) {
-						waitCount = 0;
-
-						// キャプチャをファイルに保存
-						String stringSeq = new DecimalFormat("00000").format(++seq);
-						File captureFile = FileUtils.getFile(saveDirectory, stringSeq + ".bmp");
-						System.out.println("Save " + captureFile.getPath());
-						ImageIO.write(currentCapture, "bmp", captureFile);
-
-						// 今回のキャプチャを前回のキャプチャにする
-						prevCapture = currentCapture;
-
-						// クリックポイントをクリックし、その後マウス位置を元に戻す
-						clickPoint();
-
-					} else {
-						waitCount++;
-						System.out.println("Wait " + waitCount);
-
-						if (waitCount == 5) {
-							// ５回めの待機ではもう一度クリックポイントをクリックしてみる
-							clickPoint();
+						// ページが確定したら出力
+						if (currentPage.isFixed()) {
+							savePage(currentPage);
+							updateYoungestPageNumber();
 						}
+					}
+
+					// ページをめくる
+					if (shouldGoForward()) {
+						clickPoint(nextPointX, nextPointY);
+						currentPageNumber++;
+					} else {
+						clickPoint(prevPointX, prevPointY);
+						currentPageNumber--;
 					}
 
 					return null;
@@ -441,15 +474,23 @@ public class FXMLDocumentController implements Initializable {
 		}
 
 		@Override
+		protected void ready() {
+			captureTimeline.pause();
+			System.out.printf("cur: %d, you: %d", currentPageNumber, youngestPageNumber);
+		}
+
+		@Override
 		protected void succeeded() {
-			// １０回めの待機では完了、または失敗とみなして停止する
-			if (waitCount == 10) {
-				stopCapture();
+			System.out.printf("cur: %d, you: %d", currentPageNumber, youngestPageNumber);
+
+			if (captureTimeline.getStatus() == Status.PAUSED) {
+				captureTimeline.play();
 			}
 		}
 
 		@Override
 		protected void failed() {
+			System.out.printf("cur: %d, you: %d", currentPageNumber, youngestPageNumber);
 			stopCapture();
 			LOGGER.error("致命的なエラー", getException());
 			Dialogs.create()//
@@ -458,45 +499,60 @@ public class FXMLDocumentController implements Initializable {
 					.showException(getException());
 		}
 
-		private boolean isCaptureChanged(BufferedImage currentCapture) {
-			// 初回は変化ありとする
-			if (prevCapture == null) {
-				return true;
-			}
-
-			// 比較する両キャプチャのピクセルを取得
-			Raster currentRaster = currentCapture.getData();
-			Raster prevRaster = prevCapture.getData();
-			int[] currentPixels = currentRaster.getPixels(0, 0, currentCapture.getWidth(), currentCapture.getHeight(),
-					(int[]) null);
-			int[] prevPixels = prevRaster.getPixels(0, 0, prevCapture.getWidth(), prevCapture.getHeight(),
-					(int[]) null);
-
-			// ピクセルの長さが違えば変化あり（そんなことある？）
-			if (currentPixels.length != prevPixels.length) {
-				return true;
-			}
-
-			// ピクセルの中身を比較
-			for (int i = 0; i < currentPixels.length; i++) {
-				if (currentPixels[i] != prevPixels[i]) {
-					return true;
-				}
-			}
-
-			return false;
+		/**
+		 * キャプチャ領域に指定した領域をキャプチャする。
+		 *
+		 * @return キャプチャしたイメージ
+		 */
+		private BufferedImage capture() {
+			return robot.createScreenCapture(captureRect);
 		}
 
-		private void clickPoint() throws InterruptedException {
+		/**
+		 * 引数のページを保存する。
+		 *
+		 * @param page 保存するページ
+		 * @throws IOException ページの保存に失敗した場合
+		 */
+		private void savePage(Page page) throws IOException {
+			String stringSeq = new DecimalFormat("00000").format(page.getPageNumber());
+			File captureFile = FileUtils.getFile(saveDirectory, stringSeq + ".bmp");
+			System.out.println("Save " + captureFile.getPath());
+			ImageIO.write(page.getImage(), "bmp", captureFile);
+		}
+
+		/**
+		 * 現在処理中のページのうち、最も若いページ番号を更新する。
+		 */
+		private void updateYoungestPageNumber() {
+			Page page = pages.get(youngestPageNumber);
+			while (page != null && page.isFixed()) {
+				youngestPageNumber++;
+				page = pages.get(youngestPageNumber);
+			}
+		}
+
+		/**
+		 * 次のページめくりは前方向か後方向かを決める。
+		 *
+		 * @return 前方向ならtrue
+		 */
+		private boolean shouldGoForward() {
+			return currentPageNumber <= youngestPageNumber;
+		}
+
+		/**
+		 * 指定した座標をクリックする。
+		 *
+		 * @param x X座標
+		 * @param y Y座標
+		 */
+		private void clickPoint(double x, double y) {
 			Point mousePoint = MouseInfo.getPointerInfo().getLocation();
-			robot.mouseMove((int) pointX, (int) pointY);
+			robot.mouseMove((int) x, (int) y);
 			robot.mousePress(InputEvent.BUTTON1_MASK);
 			robot.mouseRelease(InputEvent.BUTTON1_MASK);
 			robot.mouseMove(mousePoint.x, mousePoint.y);
-		}
-
-		public void setWaitCount(int waitCount) {
-			this.waitCount = waitCount;
 		}
 
 	}
