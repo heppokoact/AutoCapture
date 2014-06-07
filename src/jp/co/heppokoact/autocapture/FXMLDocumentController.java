@@ -29,6 +29,11 @@ import java.util.ResourceBundle;
 import javafx.animation.Animation.Status;
 import javafx.animation.KeyFrame;
 import javafx.animation.Timeline;
+import javafx.beans.binding.Bindings;
+import javafx.beans.property.IntegerProperty;
+import javafx.beans.property.ObjectProperty;
+import javafx.beans.property.SimpleIntegerProperty;
+import javafx.beans.property.SimpleObjectProperty;
 import javafx.concurrent.Service;
 import javafx.concurrent.Task;
 import javafx.event.ActionEvent;
@@ -57,6 +62,7 @@ import javafx.stage.Modality;
 import javafx.stage.Screen;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
+import javafx.stage.Window;
 import javafx.util.Duration;
 
 import javax.imageio.ImageIO;
@@ -114,18 +120,18 @@ public class FXMLDocumentController implements Initializable {
 	@FXML
 	private Button stopButton;
 
-	private double areaStartX;
-	private double areaStartY;
-	private double areaEndX;
-	private double areaEndY;
-	private double nextPointX;
-	private double nextPointY;
-	private double prevPointX;
-	private double prevPointY;
-	private File saveDirectory;
+	private IntegerProperty areaStartX = new SimpleIntegerProperty(0);
+	private IntegerProperty areaStartY = new SimpleIntegerProperty(0);
+	private IntegerProperty areaEndX = new SimpleIntegerProperty(0);
+	private IntegerProperty areaEndY = new SimpleIntegerProperty(0);
+	private IntegerProperty nextPointX = new SimpleIntegerProperty(0);
+	private IntegerProperty nextPointY = new SimpleIntegerProperty(0);
+	private IntegerProperty prevPointX = new SimpleIntegerProperty(0);
+	private IntegerProperty prevPointY = new SimpleIntegerProperty(0);
+	private ObjectProperty<File> saveDirectory = new SimpleObjectProperty<>();
 
-	private double dragStartX;
-	private double dragStartY;
+	private int dragStartX;
+	private int dragStartY;
 	private Rectangle areaRect;
 
 	/** 設定 */
@@ -155,25 +161,26 @@ public class FXMLDocumentController implements Initializable {
 
 		// 設定ファイルに定義した保存ディレクトリが実在すれば使用する
 		String saveDirectoryPath = prop.getProperty("saveDirectoryPath");
-		String saveDirectoryName = "";
 		if (saveDirectoryPath != null) {
 			File tempSaveDirectory = new File(saveDirectoryPath);
 			if (tempSaveDirectory.exists()) {
-				saveDirectory = tempSaveDirectory;
-				saveDirectoryName = saveDirectory.getName();
+				saveDirectory.set(tempSaveDirectory);
 			}
 		}
-		saveDirectoryLabel.setText(saveDirectoryName);
 
-		// 各種ラベルに初期値をセット
-		areaStartXLabel.setText("0.0");
-		areaStartYLabel.setText("0.0");
-		areaEndXLabel.setText("0.0");
-		areaEndYLabel.setText("0.0");
-		nextPointXLabel.setText("0.0");
-		nextPointYLabel.setText("0.0");
-		prevPointXLabel.setText("0.0");
-		prevPointYLabel.setText("0.0");
+		// 各種ラベルのバインディングをセット
+		saveDirectoryLabel.textProperty().bind(Bindings.createStringBinding(() -> {
+			File sd = saveDirectory.get();
+			return (sd == null) ? "" : sd.getName();
+		}, saveDirectory));
+		areaStartXLabel.textProperty().bind(Bindings.convert(areaStartX));
+		areaStartYLabel.textProperty().bind(Bindings.convert(areaStartY));
+		areaEndXLabel.textProperty().bind(Bindings.convert(areaEndX));
+		areaEndYLabel.textProperty().bind(Bindings.convert(areaEndY));
+		nextPointXLabel.textProperty().bind(Bindings.convert(nextPointX));
+		nextPointYLabel.textProperty().bind(Bindings.convert(nextPointY));
+		prevPointXLabel.textProperty().bind(Bindings.convert(prevPointX));
+		prevPointYLabel.textProperty().bind(Bindings.convert(prevPointY));
 
 		// 停止ボタンは非活性
 		stopButton.setDisable(true);
@@ -205,8 +212,8 @@ public class FXMLDocumentController implements Initializable {
 		Scene scene = transparentStage.getScene();
 		scene.setOnMousePressed(e -> {
 			// ドラッグ開始点を記録
-			dragStartX = e.getScreenX();
-			dragStartY = e.getScreenY();
+			dragStartX = (int) e.getScreenX();
+			dragStartY = (int) e.getScreenY();
 			// キャプチャ領域指定用の矩形を表示
 			areaRect = new Rectangle(e.getX(), e.getY(), 0, 0);
 			areaRect.setStroke(Color.RED);
@@ -226,15 +233,10 @@ public class FXMLDocumentController implements Initializable {
 		// キャプチャ領域指定用ウィンドウでマウスボタンを離した時（ドラッグ終了）の動作
 		scene.setOnMouseReleased(e -> {
 			// キャプチャ領域を記録
-			areaStartX = dragStartX;
-			areaStartY = dragStartY;
-			areaEndX = e.getScreenX();
-			areaEndY = e.getScreenY();
-			// キャプチャ領域の座標をラベルに表示
-			areaStartXLabel.setText(Double.toString(areaStartX));
-			areaStartYLabel.setText(Double.toString(areaStartY));
-			areaEndXLabel.setText(Double.toString(areaEndX));
-			areaEndYLabel.setText(Double.toString(areaEndY));
+			areaStartX.set(dragStartX);
+			areaStartY.set(dragStartY);
+			areaEndX.set((int) e.getScreenX());
+			areaEndY.set((int) e.getScreenY());
 			// キャプチャ領域指定用ウィンドウを閉じる
 			transparentStage.close();
 		});
@@ -242,8 +244,8 @@ public class FXMLDocumentController implements Initializable {
 		// キャプチャ領域指定用ウィンドウを閉じるときの動作
 		transparentStage.setOnCloseRequest(e -> {
 			// キャプチャ領域指定に使った変数を初期化
-				dragStartX = 0.0;
-				dragStartY = 0.0;
+				dragStartX = 0;
+				dragStartY = 0;
 				areaRect = null;
 			});
 
@@ -262,19 +264,15 @@ public class FXMLDocumentController implements Initializable {
 		// クリック２回目
 		EventHandler<? super MouseEvent> setPrevPoint = e -> {
 			// クリックポイントを記録し、ラベルに表示
-			prevPointX = e.getScreenX();
-			prevPointY = e.getScreenY();
-			prevPointXLabel.setText(Double.toString(prevPointX));
-			prevPointYLabel.setText(Double.toString(prevPointY));
+			prevPointX.set((int) e.getScreenX());
+			prevPointY.set((int) e.getScreenY());
 			transparentStage.close();
 		};
 		// クリック１回め
 		EventHandler<MouseEvent> setNextPoint = e -> {
 			// クリックポイントを記録し、ラベルに表示
-			nextPointX = e.getScreenX();
-			nextPointY = e.getScreenY();
-			nextPointXLabel.setText(Double.toString(nextPointX));
-			nextPointYLabel.setText(Double.toString(nextPointY));
+			nextPointX.set((int) e.getScreenX());
+			nextPointY.set((int) e.getScreenY());
 			scene.setOnMouseClicked(setPrevPoint);
 		};
 		scene.setOnMouseClicked(setNextPoint);
@@ -289,15 +287,20 @@ public class FXMLDocumentController implements Initializable {
 		// 保存ディレクトリを選択するダイアログを表示
 		DirectoryChooser dc = new DirectoryChooser();
 		dc.setTitle("保存ディレクトリを選択");
-		dc.setInitialDirectory(saveDirectory);
-		saveDirectory = dc.showDialog(anchorPane.getScene().getWindow());
-
-		// 保存ディレクトリが選択された場合、ラベルに表示
-		if (saveDirectory != null) {
-			saveDirectoryLabel.setText(saveDirectory.getName());
+		File sd = null;
+		Window window = anchorPane.getScene().getWindow();
+		try {
+			dc.setInitialDirectory(saveDirectory.get());
+			sd = dc.showDialog(window);
+		} catch (IllegalArgumentException e) {
+			dc.setInitialDirectory(null);
+			sd = dc.showDialog(window);
+		}
+		saveDirectory.set(sd);
 
 			// 選択したディレクトリを設定ファイルに保存
-			prop.setProperty("saveDirectoryPath", saveDirectory.getAbsolutePath());
+		if (sd != null) {
+			prop.setProperty("saveDirectoryPath", sd.getAbsolutePath());
 			try (OutputStream out = new FileOutputStream(CONFIG_FILE)) {
 				prop.storeToXML(out, "AutoCapture設定ファイル");
 			}
@@ -324,6 +327,12 @@ public class FXMLDocumentController implements Initializable {
 		captureTimeline.play();
 	}
 
+	/**
+	 * スタートボタン押下時に、キャプチャ実行が可能な状態になっているかどうかを検証する。
+	 * 可能な状態でない場合、ダイアログで通知する。
+	 *
+	 * @return 可能な状態ならtrue
+	 */
 	private boolean validateStartButtonClicked() {
 		if (calcAreaHeight() == 0 || calcAreaWidth() == 0) {
 			Dialogs.create()//
@@ -335,7 +344,7 @@ public class FXMLDocumentController implements Initializable {
 			return false;
 		}
 
-		if (saveDirectory == null) {
+		if (saveDirectory.get() == null) {
 			Dialogs.create()//
 					.owner(stage)//
 					.title("ERROR")//
@@ -354,6 +363,9 @@ public class FXMLDocumentController implements Initializable {
 		stopCapture();
 	}
 
+	/**
+	 * キャプチャサービスとサービスを起動するタイムラインを停止する。
+	 */
 	private void stopCapture() {
 		// キャプチャ終了
 		captureTimeline.stop();
@@ -369,6 +381,14 @@ public class FXMLDocumentController implements Initializable {
 		clip.play();
 	}
 
+	/**
+	 * 画面いっぱいに表示するウィンドウを作成して返す。
+	 * ウィンドウの背景には現在の画面のスクリーンショットを表示する。
+	 * このウィンドウはESCキーで閉じることができる。
+	 *
+	 * @return 画面いっぱいに表示するウィンドウ
+	 * @throws IOException スクリーンショットの表示に失敗した場合
+	 */
 	private Stage createTransparentStage() throws IOException {
 		// 画面いっぱいに最前面表示するウィンドウを作成
 		Stage transparentStage = new Stage(StageStyle.TRANSPARENT);
@@ -419,20 +439,39 @@ public class FXMLDocumentController implements Initializable {
 		/** 現在処理中のページのうち、最も若いページ番号 */
 		private int youngestPageNumber;
 		/** 処理中のページ */
-		Map<Integer, Page> pages = new HashMap<Integer, Page>();
+		private Map<Integer, Page> pages = new HashMap<>();
+
+		/** 前回の方向 */
+		private Direction prevDirection1;
+		/** 前々回の方向 */
+		private Direction prevDirection2;
+		/** 前回のイメージ */
+		private BufferedImage prevImage;
+		/** 前回と今回でイメージに変化はあったか */
+		private boolean isSameImage1;
+		/** 前々回と前回でイメージに変化はあったか */
+		private boolean isSameImage2;
+		/** キャプチャ完了かどうか */
+		private boolean completed;
 
 		/**
 		 * このサービスを初期化する。
 		 */
 		public void init() {
 			captureRect = new java.awt.Rectangle(
-					(int) areaStartX, (int) areaStartY,
+					areaStartX.get(), areaStartY.get(),
 					calcAreaWidth(),
 					calcAreaHeight());
 
 			youngestPageNumber = 1;
 			currentPageNumber = 1;
-			pages = new HashMap<Integer, Page>();
+			pages = new HashMap<>();
+			prevDirection1 = null;
+			prevDirection2 = null;
+			prevImage = null;
+			isSameImage1 = false;
+			isSameImage2 = false;
+			completed = false;
 		}
 
 		@Override
@@ -447,10 +486,21 @@ public class FXMLDocumentController implements Initializable {
 						pages.put(currentPageNumber, currentPage);
 					}
 
-					// 現在のページが確定していなければキャプチャ実施
+					// キャプチャ実施
+					BufferedImage image = capture();
+					isSameImage2 = isSameImage1;
+					isSameImage1 = ImageUtil.equals(prevImage, image);
+					prevImage = image;
+
+					// 終了判定
+					if (isCompleted()) {
+						completed = true;
+						return null;
+					}
+
+					// 現在のページが確定していなければキャプチャをページに与える
 					if (!currentPage.isFixed()) {
-						// キャプチャ領域をキャプチャしてページに与える
-						currentPage.submitImage(capture());
+						currentPage.submitImage(image);
 
 						// ページが確定したら出力
 						if (currentPage.isFixed()) {
@@ -460,13 +510,10 @@ public class FXMLDocumentController implements Initializable {
 					}
 
 					// ページをめくる
-					if (shouldGoForward()) {
-						clickPoint(nextPointX, nextPointY);
-						currentPageNumber++;
-					} else {
-						clickPoint(prevPointX, prevPointY);
-						currentPageNumber--;
-					}
+					Direction direction = decideDirection();
+					prevDirection2 = prevDirection1;
+					prevDirection1 = direction;
+					direction.turnPage();
 
 					return null;
 				}
@@ -476,21 +523,26 @@ public class FXMLDocumentController implements Initializable {
 		@Override
 		protected void ready() {
 			captureTimeline.pause();
-			System.out.printf("cur: %d, you: %d", currentPageNumber, youngestPageNumber);
+			System.out.printf("RADY -> cur:%d, you:%d, dir:(%s,%s), img:(%b,%b)%n", currentPageNumber,
+					youngestPageNumber, prevDirection1, prevDirection2, isSameImage1, isSameImage2);
 		}
 
 		@Override
 		protected void succeeded() {
-			System.out.printf("cur: %d, you: %d", currentPageNumber, youngestPageNumber);
+			System.out.printf("SUCC -> cur:%d, you:%d, dir:(%s,%s), img:(%b,%b)%n", currentPageNumber,
+					youngestPageNumber, prevDirection1, prevDirection2, isSameImage1, isSameImage2);
 
-			if (captureTimeline.getStatus() == Status.PAUSED) {
+			if (completed) {
+				stopCapture();
+			} else if (captureTimeline.getStatus() == Status.PAUSED) {
 				captureTimeline.play();
 			}
 		}
 
 		@Override
 		protected void failed() {
-			System.out.printf("cur: %d, you: %d", currentPageNumber, youngestPageNumber);
+			System.out.printf("FAIL -> cur:%d, you:%d, dir:(%s,%s), img:(%b,%b)%n", currentPageNumber,
+					youngestPageNumber, prevDirection1, prevDirection2, isSameImage1, isSameImage2);
 			stopCapture();
 			LOGGER.error("致命的なエラー", getException());
 			Dialogs.create()//
@@ -509,6 +561,41 @@ public class FXMLDocumentController implements Initializable {
 		}
 
 		/**
+		 * キャプチャの終了判定を行う。
+		 *
+		 * 下記のいずれかの場合、終了と判定する。
+		 *
+		 * <ul>
+		 *   <li>次の動作1,2が連続した場合（最後のページがそのひとつ前のページより先にFIXした場合を想定）
+		 *     <ol>
+		 *       <li>前方向にページめくりをし、イメージに変化がなかった</li>
+		 *       <li>前方向にページめくりをし、イメージに変化がなかった</li>
+		 *     </ol>
+		 *   </li>
+		 *   <li>次の動作1,2が連続した場合（最後のページが最後までFIXせずに残った場合を想定）
+		 *     <ol>
+		 *       <li>前方向にページめくりをし、イメージに変化がなかった</li>
+		 *       <li>後方向にページめくりをし、イメージが変化した</li>
+		 *     </ol>
+		 *   </li>
+		 * </ul>
+		 *
+		 * @return 終了している場合true
+		 */
+		private boolean isCompleted() {
+			if (prevDirection2 == FORWARD && isSameImage2) {
+
+				if (prevDirection1 == FORWARD && isSameImage1) {
+					return true;
+				} else if (prevDirection1 == BACKWARD && !isSameImage1) {
+					return true;
+				}
+			}
+
+			return false;
+		}
+
+		/**
 		 * 引数のページを保存する。
 		 *
 		 * @param page 保存するページ
@@ -516,7 +603,7 @@ public class FXMLDocumentController implements Initializable {
 		 */
 		private void savePage(Page page) throws IOException {
 			String stringSeq = new DecimalFormat("00000").format(page.getPageNumber());
-			File captureFile = FileUtils.getFile(saveDirectory, stringSeq + ".bmp");
+			File captureFile = FileUtils.getFile(saveDirectory.get(), stringSeq + ".bmp");
 			System.out.println("Save " + captureFile.getPath());
 			ImageIO.write(page.getImage(), "bmp", captureFile);
 		}
@@ -537,8 +624,12 @@ public class FXMLDocumentController implements Initializable {
 		 *
 		 * @return 前方向ならtrue
 		 */
-		private boolean shouldGoForward() {
-			return currentPageNumber <= youngestPageNumber;
+		private Direction decideDirection() {
+			if (currentPageNumber <= youngestPageNumber) {
+				return FORWARD;
+			} else {
+				return BACKWARD;
+			}
 		}
 
 		/**
@@ -547,22 +638,57 @@ public class FXMLDocumentController implements Initializable {
 		 * @param x X座標
 		 * @param y Y座標
 		 */
-		private void clickPoint(double x, double y) {
+		private void clickPoint(IntegerProperty x, IntegerProperty y) {
 			Point mousePoint = MouseInfo.getPointerInfo().getLocation();
-			robot.mouseMove((int) x, (int) y);
+			robot.mouseMove(x.get(), y.get());
 			robot.mousePress(InputEvent.BUTTON1_MASK);
 			robot.mouseRelease(InputEvent.BUTTON1_MASK);
 			robot.mouseMove(mousePoint.x, mousePoint.y);
 		}
 
+		/**
+		 * ページめくりする方向を表す。
+		 * 本当はEnumが良いが、enumはstaticでない内部クラス内で定義できないので仕方なく抽象クラスを使用する。
+		 */
+		private abstract class Direction {
+			abstract void turnPage();
+		}
+
+		/** 前へ進む処理 */
+		private final Direction FORWARD = new Direction() {
+			@Override
+			void turnPage() {
+				clickPoint(nextPointX, nextPointY);
+				currentPageNumber++;
+			}
+
+			@Override
+			public String toString() {
+				return "FORWARD";
+	}
+		};
+
+		/** 後ろへ進む処理 */
+		private final Direction BACKWARD = new Direction() {
+			@Override
+			void turnPage() {
+				clickPoint(prevPointX, prevPointY);
+				currentPageNumber--;
+			}
+
+			@Override
+			public String toString() {
+				return "BACKWARD";
+			}
+		};
 	}
 
 	private int calcAreaWidth() {
-		return (int) (areaEndX - areaStartX);
+		return areaEndX.get() - areaStartX.get();
 	}
 
 	private int calcAreaHeight() {
-		return (int) (areaEndY - areaStartY);
+		return areaEndY.get() - areaStartY.get();
 	}
 
 	public void setStage(Stage stage) {

@@ -1,8 +1,8 @@
 package jp.co.heppokoact.autocapture;
 
 import java.awt.image.BufferedImage;
-import java.awt.image.Raster;
-import java.util.Arrays;
+
+import jp.co.heppokoact.util.ImageUtil;
 
 /**
  * 電子書籍のページ
@@ -41,14 +41,19 @@ public class Page {
 	 * キャプチャ一致枚数{@link #matchCount}をリセットする。
 	 *
 	 * @param currentImage このページのイメージ候補
+	* @return このページのイメージ{@link #image}と引数のイメージが一致していればtrue
 	 */
-	public void submitImage(BufferedImage currentImage) {
-		if (isSameImage(currentImage)) {
+	public boolean submitImage(BufferedImage currentImage) {
+		boolean isSame = isSameImage(currentImage);
+
+		if (isSame) {
 			matchCount++;
 		} else {
 			image = currentImage;
 			matchCount = 1;
 		}
+
+		return isSame;
 	}
 
 	/**
@@ -58,23 +63,9 @@ public class Page {
 	 * @return 一致していればtrue
 	 */
 	private boolean isSameImage(BufferedImage currentImage) {
-		// 比較する両キャプチャのピクセルを取得
-		int[] currentPixels = obtainAllPixels(currentImage);
-		int[] prevPixels = obtainAllPixels(image);
-
-		// ピクセルの中身を比較
-		return Arrays.equals(currentPixels, prevPixels);
-	}
-
-	/**
-	 * 引数のイメージから全ピクセルを取得する。
-	 *
-	 * @param target ピクセルを取得するイメージ
-	 * @return 引数のイメージの全ピクセル
-	 */
-	private int[] obtainAllPixels(BufferedImage target) {
-		Raster raster = target.getData();
-		return raster.getPixels(0, 0, target.getWidth(), target.getHeight(), (int[]) null);
+		boolean result = ImageUtil.equals(image, currentImage);
+		System.out.printf("Compare page %d: %b%n", pageNumber, result);
+		return result;
 	}
 
 	/**
